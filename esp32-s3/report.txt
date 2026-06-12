@@ -1,0 +1,12 @@
+Front (top side) placement file: '/home/mauricio/n2048/silvia/esp32-s3/esp32-s3-top.pos'.
+Info: Component count: 36.
+Back (bottom side) placement file: '/home/mauricio/n2048/silvia/esp32-s3/esp32-s3-bottom.pos'.
+Info: Component count: 0.
+Info: Full component count: 36.
+Info: Done.
+Front (top side) placement file: '/home/mauricio/n2048/silvia/esp32-s3/esp32-s3-top.pos'.
+Info: Component count: 36.
+Back (bottom side) placement file: '/home/mauricio/n2048/silvia/esp32-s3/esp32-s3-bottom.pos'.
+Info: Component count: 0.
+Info: Full component count: 36.
+Info: Done.
