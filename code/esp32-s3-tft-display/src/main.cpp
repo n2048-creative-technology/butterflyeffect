@@ -1,4 +1,16 @@
+#include <Arduino.h>
 #include <TFT_eSPI.h>
+ 
+#include "RD03D.h"
+
+#define RX_PIN 20
+#define TX_PIN 21
+#define BAUD_RATE 256000
+ 
+RD03D radar(RX_PIN, TX_PIN); // ESP RX/TX pins connected to sensor TX/RX
+
+RD03D::RD03DMode radarMode = RD03D::SINGLE_TARGET;  // Change to RD03D::MULTI_TARGET for multi-target mode
+
 
 String str1 = "The butterfly effect is a concept from chaos theory where small changes can lead to vastly different outcomes. A butterfly flapping its wings in Brazil could theoretically cause a tornado in Texas.";
 String str2 = "This illustrates how tiny initial conditions can create massive differences in complex systems. It shows the interconnectedness of all things and the unpredictability of long-term effects.";
@@ -9,6 +21,8 @@ TFT_eSPI tft = TFT_eSPI();
 void setup() {
   Serial.begin(115200);
   Serial.println("Starting TFT test...");
+
+  radar.initialize(radarMode);  // Initialize radar in single-target mode
 
   tft.begin();
   tft.setRotation(1);
@@ -71,10 +85,12 @@ void applyGlitchEffect(uint8_t intensity) {
     return;
   }
 
+  String randomText;
+  
   tft.setTextSize(1);
   for(uint8_t i = 0; i <10; i++) {
     tft.setCursor(0,0);  
-    String randomText = randomSymbols(random(10,400),90);
+    randomText = randomSymbols(random(10,400),90);
     tft.setTextColor(grayToColor2(random(intensity/2, intensity)));
     tft.println(randomText);
   }
@@ -82,7 +98,7 @@ void applyGlitchEffect(uint8_t intensity) {
     tft.setTextSize(2);
   for(uint8_t i = 0; i <10; i++) {
     tft.setCursor(0,0);  
-    String randomText = randomSymbols(random(10,200),90);
+    randomText = randomSymbols(random(10,200),90);
     tft.setTextColor(grayToColor2(random(intensity/2, intensity)));
     tft.println(randomText);
   }
@@ -90,7 +106,7 @@ void applyGlitchEffect(uint8_t intensity) {
     tft.setTextSize(1);
   for(uint8_t i = 0; i <2; i++) {
     tft.setCursor(0,0);  
-    String randomText = randomSymbols(random(10,400),99);
+    randomText = randomSymbols(random(10,400),99);
     tft.setTextColor(grayToColor1(random(intensity/4, intensity/2)));
     tft.println(randomText);
   }
@@ -99,15 +115,34 @@ void applyGlitchEffect(uint8_t intensity) {
 
 
 void loop() {
-  // Update intensity every 100ms
-  unsigned long currentTime = millis();
-  if (currentTime - lastIntensityChange >= 100) {
-    lastIntensityChange = currentTime;
-    intensity += 2;
-    if (intensity > 255) {
-      intensity = 0;
-    }
+
+
+  /// check proximity
+  radar.tasks();
+  TargetData* tgt = radar.getTarget();
+  if(tgt->isValid()){
+    Serial.print("Single Target Detected: ");
+    tgt->printInfo();
+
+    float distance = tgt->distance;
+    float  angle = tgt->angle;
+    float  speed = tgt->speed;
+
+    intensity = map(
+      constrain(distance, 40, 1000),
+      40,1000,
+      0,255
+    );
   }
+  else {
+    Serial.println("No target detected");
+    intensity = 255;
+    tft.fillScreen(TFT_BLACK);
+  }
+
+
+  unsigned long currentTime = millis();
+
 
   // Switch between str1 and str2 every 10 seconds
   if (currentTime - lastStringChange >= 10000) {
@@ -117,7 +152,7 @@ void loop() {
 
   // tft.fillScreen(TFT_BLACK);
 //  applyGlitchEffect(intensity);
-  applyGlitchEffect(10);
+  applyGlitchEffect(intensity);
 
   // Draw info
   tft.setTextColor(TFT_WHITE);
