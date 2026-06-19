@@ -19,8 +19,6 @@ String str2 = "This illustrates how tiny initial conditions can create massive d
 TFT_eSPI tft = TFT_eSPI();
 
 void setup() {
-  Serial.begin(115200);
-  Serial.println("Starting TFT test...");
 
   radar.initialize(radarMode);  // Initialize radar in single-target mode
 
@@ -35,16 +33,20 @@ void setup() {
   tft.setTextSize(2);
   tft.setCursor(3, 2);
   tft.println("");
-  tft.println(" Hello");
-  tft.println("  Butterfly");
+  tft.println(" Butterfly");
   tft.println("");
-  tft.println("    Effect");
+  tft.println("     Effect");
   tft.println("");
   tft.setTextSize(1);
-  tft.println("     it works!");
-  tft.println(" 2");
+  tft.println("");
+  tft.println("  Silvia Gatti");
+  tft.println("");
+  tft.println("                    2026");
+
+  delay(3000);  // Wait for 3 seconds before starting the main loop
 
 }
+
 
 uint8_t intensity = 0;
 unsigned long lastIntensityChange = 0;
@@ -116,12 +118,10 @@ void applyGlitchEffect(uint8_t intensity) {
 
 void loop() {
 
-
   /// check proximity
   radar.tasks();
   TargetData* tgt = radar.getTarget();
   if(tgt->isValid()){
-    Serial.print("Single Target Detected: ");
     tgt->printInfo();
 
     float distance = tgt->distance;
@@ -129,13 +129,12 @@ void loop() {
     float  speed = tgt->speed;
 
     intensity = map(
-      constrain(distance, 40, 1000),
-      40,1000,
+      constrain(distance, 15, 1000),
+      15,1000,
       0,255
     );
   }
   else {
-    Serial.println("No target detected");
     intensity = 255;
     tft.fillScreen(TFT_BLACK);
   }
@@ -152,18 +151,19 @@ void loop() {
 
   // tft.fillScreen(TFT_BLACK);
 //  applyGlitchEffect(intensity);
-  applyGlitchEffect(intensity);
+  applyGlitchEffect(random(0, intensity));
 
   // Draw info
-  tft.setTextColor(TFT_WHITE);
-  tft.setTextSize(1);
-  tft.setCursor(3, 2);
-  tft.print("Intensity: ");
-  tft.println(intensity);
+  // tft.setTextColor(grayToColor1(10));
+  // tft.setTextSize(1);
+  // tft.setCursor(3, 2);
+  // tft.print("Intensity: ");
+  // tft.println(intensity);
 
   // Draw the current butterfly effect paragraph
+  tft.setTextColor(TFT_WHITE);
   tft.setTextSize(1);
-  for(uint8_t i = 0; i < 10; i++) {
+  for(uint8_t i = 0; i < 20; i++) {
     tft.setCursor(3, 20);
     if (showStr1) {
       tft.println(str1);
@@ -171,7 +171,6 @@ void loop() {
       tft.println(str2);
     }
   }
-
 
   delay(16);
 }
