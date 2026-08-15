@@ -149,15 +149,26 @@ const uint8_t PARAGRAPH_COUNT = sizeof(paragraphs) / sizeof(paragraphs[0]);
 #define READ_MIN_MS        5000
 #define READ_MAX_MS       14000
 
-// Cross-fade between paragraphs: characters dissolve into random symbols and
-// reform as the next paragraph, reusing the glitch alphabet.
-#define MORPH_MS           450
+// Paragraph crossfade: the outgoing paragraph fades out while the incoming one
+// fades in, both drawn at once. Smoother than the old character-dissolve, and
+// it cannot pile up leftovers because every frame draws the same glyphs.
+#define CROSSFADE_MS      450   // paragraph crossfade length
 
 char     lineText[MAX_LINES][MAX_LINE_CHARS + 1];
 uint8_t  lineLen[MAX_LINES];
 int16_t  lineX[MAX_LINES];
 int16_t  lineY[MAX_LINES];
 uint8_t  lineCount     = 0;
+
+// Snapshot of the paragraph being replaced. During a crossfade both are drawn:
+// the old one fading out, the new one fading in.
+char     prevText[MAX_LINES][MAX_LINE_CHARS + 1];
+uint8_t  prevLen[MAX_LINES];
+int16_t  prevX[MAX_LINES];
+int16_t  prevY[MAX_LINES];
+uint8_t  prevCount = 0;
+uint8_t  prevFont  = 1;
+bool     hasPrev   = false;
 uint8_t  paragraphIdx  = 0;
 unsigned long paragraphStart = 0;
 unsigned long paragraphDwell = READ_MIN_MS;
@@ -251,16 +262,6 @@ static int16_t measureText(const char* str, uint8_t font) {
   return w;
 }
 
-// A random glyph with exactly the same advance as the original, so a morphing
-// line keeps its width to the pixel and can never grow past the margin.
-static char morphChar(char orig, uint8_t font) {
-  int16_t w = glyphAdvance(orig, font);
-  for (uint8_t t = 0; t < 6; t++) {
-    char c = (char)random(33, 127);
-    if (glyphAdvance(c, font) == w) return c;
-  }
-  return orig;
-}
 
 // Wrap the paragraph for one candidate font. Returns false if any single word
 // is wider than the screen or the result is too tall.
@@ -329,7 +330,7 @@ void layoutParagraph(uint8_t idx) {
   // screen instead of clustering at the top, then pick a random X per line that
   // keeps every character inside the margins. Proportional fonts get a few
   // pixels of slack so a wider glyph during the morph cannot cross the margin.
-  const int16_t morphSlack = 0;   // morphChar() preserves the exact line width
+  const int16_t morphSlack = 0;   // crossfade redraws identical glyphs, no drift
   int16_t slot = (lineCount > 0) ? usableH / lineCount : usableH;
   if (slot < chosenLineH) slot = chosenLineH;
   int16_t block = slot * lineCount;
@@ -372,24 +373,33 @@ static uint8_t easeMorph(unsigned long num, unsigned long den) {
 // dissolved into random symbols: 0 = fully legible, 255 = pure noise.
 // Each glyph is placed at the position its *original* character occupies, so a
 // morphed line never shifts sideways.
-void drawParagraph(uint8_t morph) {
+// Draw one laid-out paragraph at the given brightness. Characters are placed by
+// the same advance rule the renderer uses, so nothing shifts between frames --
+// which is what lets a crossfade simply redraw the same glyphs at a new level.
+static void drawLines(const char text[][MAX_LINE_CHARS + 1], const uint8_t* len,
+                      const int16_t* xs, const int16_t* ys,
+                      uint8_t count, uint8_t font, uint8_t brightness) {
+  if (!brightness) return;
   g->setTextSize(1);
-  g->setTextFont(chosenFont);
-  g->setTextColor(greyShade(textBrightness));
-  for (uint8_t i = 0; i < lineCount; i++) {
-    int16_t x = lineX[i];
-    for (uint8_t k = 0; k < lineLen[i]; k++) {
-      char ch = lineText[i][k];
-      int16_t adv = glyphAdvance(ch, chosenFont);
+  g->setTextFont(font);
+  g->setTextColor(greyShade(brightness));
+  for (uint8_t i = 0; i < count; i++) {
+    int16_t x = xs[i];
+    for (uint8_t k = 0; k < len[i]; k++) {
+      char ch = text[i][k];
+      int16_t adv = glyphAdvance(ch, font);
       if (ch != ' ') {
-        char draw = ch;
-        if (morph && random(255) < morph) draw = morphChar(ch, chosenFont);
-        g->setCursor(x, lineY[i]);
-        g->print(draw);
+        g->setCursor(x, ys[i]);
+        g->print(ch);
       }
       x += adv;
     }
   }
+}
+
+// Scale a brightness by a 0..255 fade factor.
+static inline uint8_t fadeLevel(uint8_t base, uint8_t f) {
+  return (uint8_t)(((uint16_t)base * f) / 255);
 }
 
 bool ledPwmOk = false;   // result of ledcAttach(), shown on the splash screen
@@ -702,22 +712,31 @@ void loop() {
 
   // Advance to the next paragraph once it has been up long enough to read.
   if (currentTime - paragraphStart >= paragraphDwell) {
+    // Keep the outgoing paragraph so it can fade out over the incoming one.
+    memcpy(prevText, lineText, sizeof(prevText));
+    memcpy(prevLen,  lineLen,  sizeof(prevLen));
+    memcpy(prevX,    lineX,    sizeof(prevX));
+    memcpy(prevY,    lineY,    sizeof(prevY));
+    prevCount = lineCount;
+    prevFont  = chosenFont;
+    hasPrev   = true;
+
     paragraphIdx = (paragraphIdx + 1) % PARAGRAPH_COUNT;
     layoutParagraph(paragraphIdx);
     clearCanvas(TFT_BLACK);   // no ghost strokes from the outgoing paragraph
     currentTime = millis();
   }
 
-  // Morph: dissolve towards noise at the end of a paragraph, reform out of it
-  // at the start of the next one.
+  // Crossfade: for CROSSFADE_MS after a switch the outgoing paragraph fades out
+  // while the incoming one fades in, both on screen together. Smoothstep easing
+  // makes it start and end gently rather than ramping linearly.
   unsigned long shown = currentTime - paragraphStart;
-  uint8_t morph = 0;
-  if (shown < MORPH_MS) {
-    morph = 255 - easeMorph(shown, MORPH_MS);            // reform, eased
-  } else if (shown + MORPH_MS > paragraphDwell) {
-    unsigned long into = shown + MORPH_MS - paragraphDwell;
-    if (into > MORPH_MS) into = MORPH_MS;
-    morph = easeMorph(into, MORPH_MS);                   // dissolve, eased
+  bool crossfading = hasPrev && shown < CROSSFADE_MS;
+  uint8_t fadeIn  = 255;
+  uint8_t fadeOut = 0;
+  if (crossfading) {
+    fadeIn  = easeMorph(shown, CROSSFADE_MS);
+    fadeOut = 255 - fadeIn;
   }
 
   // The morph draws fresh random glyphs every frame, so without this ~18 frames
@@ -727,9 +746,13 @@ void loop() {
   // written, so no colour is ever altered -- unlike a fade.
   // Outside the transition nothing is cleared, so the glitch still accumulates
   // exactly as before.
-  static uint8_t prevMorph = 0;
-  if (morph > 0 || prevMorph > 0) clearCanvas(TFT_BLACK);
-  prevMorph = morph;
+  // Both paragraphs are redrawn every crossfade frame, so the canvas has to be
+  // wiped first or the two would stack. One extra wipe on the frame the fade
+  // ends hands the settled paragraph a clean canvas. Only black is written, so
+  // no colour is ever altered.
+  static bool wasCrossfading = false;
+  if (crossfading || wasCrossfading) clearCanvas(TFT_BLACK);
+  wasCrossfading = crossfading;
 
   // Fade what is already on the canvas before drawing this frame on top, so
   // trails smear and then die out instead of accumulating forever.
@@ -751,7 +774,12 @@ void loop() {
 
   // Draw the current paragraph, positioned by layoutParagraph()
   unsigned long tText0 = micros();
-  drawParagraph(morph);
+  if (crossfading) {
+    drawLines(prevText, prevLen, prevX, prevY, prevCount, prevFont,
+              fadeLevel(textBrightness, fadeOut));
+  }
+  drawLines(lineText, lineLen, lineX, lineY, lineCount, chosenFont,
+            fadeLevel(textBrightness, fadeIn));
   usText = micros() - tText0;
 
   // One streamed write of the finished frame (no-op when drawing direct)
