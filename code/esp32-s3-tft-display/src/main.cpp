@@ -45,7 +45,7 @@
 // 1000 mm, so everything past a metre looked identical -- the sensor reads well
 // past 2 m, so the gradient now spans the room.
 #define DIST_NEAR_MM   100   // 10 cm: as close as a viewer realistically gets
-#define DIST_FAR_MM   1000   // 1 m: beyond this it is pure glitch
+#define DIST_FAR_MM   1000 // 1 m  beyond this it is pure glitch
 
 // Text layer brightness, in percent of white. TEXT_OPACITY is the maximum,
 // reached when the viewer is closest; it falls to TEXT_MIN_OPACITY at a
@@ -53,9 +53,14 @@
 #define TEXT_OPACITY      80
 #define TEXT_MIN_OPACITY  20
 
+/*
 #define COPPER_R 184
 #define COPPER_G 115
 #define COPPER_B  51
+*/
+#define COPPER_R 255
+#define COPPER_G 255
+#define COPPER_B 255
 
 // Optional trail fade. OFF by default: the ghost strokes turned out to be a
 // glyph-advance bug (now fixed) plus the missing clear on paragraph change, so
